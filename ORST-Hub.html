@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ORST Hub — Central de Sistemas</title>
+<meta name="theme-color" content="#1a1612">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ORST Hub">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+
+<!-- Firebase -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, addDoc, getDocs, deleteDoc, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBsbhLaj1_LsAkETAhzEHM5KIJWB-7Zjkw",
+  authDomain: "orst-financas.firebaseapp.com",
+  projectId: "orst-financas",
+  storageBucket: "orst-financas.firebasestorage.app",
+  messagingSenderId: "26142326621",
+  appId: "1:26142326621:web:c1fd54a75aecdb3ae7b2b4"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+window.ORST = { user: null, role: 'free', db, auth, signOut: () => signOut(auth) };
+
+const PERMS = {
+  free:    ['hub','financas'],
+  premium: ['hub','financas','planner','habitos','metas','alimentacao','sono','treino'],
+  admin:   ['hub','financas','planner','habitos','metas','alimentacao','sono','treino','admin']
+};
+window.canAccess = p => (PERMS[window.ORST.role]||PERMS.free).includes(p);
+
+onAuthStateChanged(auth, async user => {
+  if(user){
+    window.ORST.user = user;
+    try {
+      const snap = await getDoc(doc(db,'users',user.uid));
+      if(snap.exists()) window.ORST.role = snap.data().role||'free';
+      else {
+        await setDoc(doc(db,'users',user.uid),{email:user.email,role:'free',createdAt:new Date().toISOString()});
+        window.ORST.role = 'free';
+      }
+    } catch(e){ window.ORST.role = 'free'; }
+    showApp();
+  } else { window.ORST.user=null; window.ORST.role='free'; showLogin(); }
+});
+
+window.doLogin = async () => {
+  const email=document.getElementById('l-email').value.trim();
+  const pass=document.getElementById('l-pass').value;
+  const err=document.getElementById('l-err');
+  err.textContent='';
+  if(!email||!pass){err.textContent='Preencha email e senha.';return;}
+  try{document.getElementById('btn-login').textContent='Entrando...';
+    await signInWithEmailAndPassword(auth,email,pass);
+  }catch(e){
+    document.getElementById('btn-login').textContent='Entrar';
+    err.textContent=e.code==='auth/invalid-credential'?'Email ou senha incorretos.':'Erro: '+e.message;
+  }
+};
+window.doRegister = async () => {
+  const n=document.getElementById('r-name').value.trim();
+  const e=document.getElementById('r-email').value.trim();
+  const p=document.getElementById('r-pass').value;
+  const err=document.getElementById('r-err');
+  err.textContent='';
+  if(!n||!e||!p){err.textContent='Preencha todos os campos.';return;}
+  if(p.length<6){err.textContent='Senha mínimo 6 caracteres.';return;}
+  try{document.getElementById('btn-reg').textContent='Criando...';
+    const c=await createUserWithEmailAndPassword(auth,e,p);
+    await setDoc(doc(db,'users',c.user.uid),{email:e,name:n,role:'free',createdAt:new Date().toISOString()});
+  }catch(e2){
+    document.getElementById('btn-reg').textContent='Criar conta';
+    err.textContent=e2.code==='auth/email-already-in-use'?'Email já cadastrado.':'Erro: '+e2.message;
+  }
+};
+window.doReset = async () => {
+  const email=document.getElementById('l-email').value.trim();
+  if(!email){document.getElementById('l-err').textContent='Digite o email.';return;}
+  try{await sendPasswordResetEmail(auth,email);
+    document.getElementById('l-err').style.color='#8a7d6b';
+    document.getElementById('l-err').textContent='Email enviado!';}
+  catch(e){document.getElementById('l-err').textContent='Erro ao enviar.';}
+};
+
+// FIRESTORE helpers
+window.FS = {
+  save: async (col,data) => { const uid=window.ORST.user?.uid; if(!uid)return; return await addDoc(collection(db,'users',uid,col),data); },
+  get:  async (col,ord) => { const uid=window.ORST.user?.uid; if(!uid)return []; try{ const q=ord?query(collection(db,'users',uid,col),orderBy(ord,'desc')):collection(db,'users',uid,col); const s=await getDocs(q); return s.docs.map(d=>({id:d.id,...d.data()})); }catch(e){return [];} },
+  del:  async (col,id) => { const uid=window.ORST.user?.uid; if(!uid)return; await deleteDoc(doc(db,'users',uid,col,id)); },
+  upd:  async (col,id,data) => { const uid=window.ORST.user?.uid; if(!uid)return; await updateDoc(doc(db,'users',uid,col,id),data); }
+};
+</script>
+
+<style>
+:root {
+  --ink: #1a1612;
+  --ink2: #3d3630;
+  --ink3: #7a6f64;
+  --nude: #f5f0e8;
+  --nude2: #ede6d8;
+  --nude3: #e4dace;
+  --nude4: #d4c9b8;
+  --warm: #c4a882;
+  --warm2: #a8896a;
+  --accent: #8a6d4e;
+  --green: #5a7a5a;
+  --green-bg: #edf2ed;
+  --red: #9a4a4a;
+  --red-bg: #f5eaea;
+  --blue: #4a6a8a;
+  --blue-bg: #eaeff5;
+  --gold: #b8963e;
+  --gold-bg: #faf4e6;
+  --surface: #faf8f4;
+  --surface2: #f5f0e8;
+  --border: rgba(26,22,18,0.08);
+  --border2: rgba(26,22,18,0.15);
+  --shadow: 0 2px 8px rgba(26,22,18,0.06), 0 8px 24px rgba(26,22,18,0.04);
+  --shadow2: 0 4px 16px rgba(26,22,18,0.1), 0 16px 48px rgba(26,22,18,0.06);
+  --r: 12px; --r-sm: 7px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--nude);color:var(--ink);font-size:14px;min-height:100vh;}
+
+/* ===== LOGIN ===== */
+.login-wrap{position:fixed;inset:0;background:var(--ink);display:flex;align-items:stretch;z-index:1000;}
+.login-wrap.hidden{display:none;}
+.login-left{flex:1;display:flex;align-items:center;justify-content:center;padding:40px;background:linear-gradient(160deg,#1a1612 0%,#2d261e 60%,#1a1612 100%);}
+.login-deco{text-align:center;}
+.login-deco-logo{margin-bottom:24px;}
+.login-deco h1{font-family:'Cormorant Garamond',serif;font-size:52px;font-weight:300;color:var(--nude);letter-spacing:.08em;line-height:1.1;}
+.login-deco h1 em{font-style:italic;color:var(--warm);}
+.login-deco p{font-size:13px;color:rgba(245,240,232,0.45);letter-spacing:.12em;text-transform:uppercase;margin-top:12px;}
+.login-tagline{font-size:12px;color:rgba(245,240,232,0.3);letter-spacing:.06em;margin-top:32px;line-height:1.8;}
+.login-right{width:420px;background:var(--surface);display:flex;align-items:center;justify-content:center;padding:48px 40px;}
+.login-box{width:100%;}
+.login-box h2{font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:400;color:var(--ink);margin-bottom:6px;}
+.login-box p{font-size:12px;color:var(--ink3);margin-bottom:28px;letter-spacing:.03em;}
+.l-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:24px;}
+.l-tab{flex:1;padding:10px;text-align:center;font-size:12.5px;font-weight:500;color:var(--ink3);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:.03em;transition:all .2s;}
+.l-tab.active{color:var(--ink);border-bottom-color:var(--warm);}
+.l-panel{display:none;}
+.l-panel.active{display:block;}
+.l-group{margin-bottom:16px;}
+.l-label{font-size:11px;color:var(--ink3);font-weight:500;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:6px;}
+.l-input{width:100%;padding:10px 14px;border:1px solid var(--border2);border-radius:var(--r-sm);font-size:13px;color:var(--ink);background:var(--nude);font-family:'DM Sans',sans-serif;transition:border .2s;}
+.l-input:focus{outline:none;border-color:var(--warm);background:#fff;}
+.l-err{font-size:12px;min-height:16px;margin-bottom:12px;color:var(--red);}
+.l-btn{width:100%;padding:12px;border:none;border-radius:var(--r-sm);background:var(--ink);color:var(--nude);font-size:13px;font-weight:500;cursor:pointer;letter-spacing:.04em;font-family:'DM Sans',sans-serif;transition:all .2s;}
+.l-btn:hover{background:var(--ink2);}
+.l-forgot{font-size:11px;color:var(--warm2);cursor:pointer;text-align:center;margin-top:14px;letter-spacing:.04em;}
+.l-forgot:hover{color:var(--accent);}
+@media(max-width:700px){.login-left{display:none;}.login-right{width:100%;}}
+
+/* ===== APP ===== */
+.app{display:none;min-height:100vh;flex-direction:column;}
+.app.visible{display:flex;}
+
+/* TOPBAR */
+.topbar{background:var(--ink);height:56px;display:flex;align-items:center;padding:0 28px;gap:20px;position:sticky;top:0;z-index:100;}
+.tb-brand{display:flex;align-items:center;gap:10px;margin-right:auto;}
+.tb-logo{width:28px;height:28px;}
+.tb-name{font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:400;color:var(--nude);letter-spacing:.08em;}
+.tb-name em{font-style:italic;color:var(--warm);font-size:13px;margin-left:6px;letter-spacing:.06em;}
+.tb-nav{display:flex;gap:2px;}
+.tb-btn{padding:6px 14px;border-radius:100px;font-size:12px;color:rgba(245,240,232,0.55);cursor:pointer;border:none;background:none;font-family:'DM Sans',sans-serif;letter-spacing:.03em;transition:all .2s;}
+.tb-btn:hover{color:var(--nude);background:rgba(255,255,255,0.08);}
+.tb-btn.active{color:var(--nude);background:rgba(196,168,130,0.2);border:1px solid rgba(196,168,130,0.3);}
+.tb-btn.locked{opacity:.35;cursor:not-allowed;}
+.tb-user{display:flex;align-items:center;gap:8px;margin-left:12px;}
+.tb-av{width:28px;height:28px;border-radius:50%;background:var(--warm);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--ink);}
+.tb-role{font-size:10px;padding:2px 8px;border-radius:100px;font-weight:500;}
+.role-free{background:rgba(255,255,255,0.1);color:rgba(245,240,232,0.6);}
+.role-premium{background:rgba(184,150,62,0.25);color:var(--gold);}
+.role-admin{background:rgba(196,168,130,0.3);color:var(--warm);}
+.tb-out{background:none;border:none;color:rgba(245,240,232,0.35);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;padding:4px 8px;border-radius:4px;}
+.tb-out:hover{color:var(--nude);}
+
+/* CONTENT */
+.content{flex:1;padding:28px;max-width:1200px;margin:0 auto;width:100%;}
+.page{display:none;flex-direction:column;gap:20px;animation:fadeUp .25s ease;}
+.page.active{display:flex;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+/* HUB PAGE */
+.hub-hero{background:var(--ink);border-radius:var(--r);padding:40px 48px;display:flex;align-items:center;justify-content:space-between;overflow:hidden;position:relative;}
+.hub-hero::before{content:'';position:absolute;right:-40px;top:-40px;width:300px;height:300px;border-radius:50%;background:radial-gradient(circle,rgba(196,168,130,0.12) 0%,transparent 70%);}
+.hub-hero-text h1{font-family:'Cormorant Garamond',serif;font-size:42px;font-weight:300;color:var(--nude);line-height:1.15;letter-spacing:.03em;}
+.hub-hero-text h1 em{font-style:italic;color:var(--warm);}
+.hub-hero-text p{font-size:13px;color:rgba(245,240,232,0.5);margin-top:10px;letter-spacing:.04em;}
+.hub-date{text-align:right;color:rgba(245,240,232,0.35);font-size:12px;letter-spacing:.08em;text-transform:uppercase;}
+.hub-date strong{display:block;font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:300;color:var(--warm);letter-spacing:.02em;margin-bottom:4px;}
+
+.systems-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;}
+.sys-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:24px;cursor:pointer;transition:all .25s;position:relative;overflow:hidden;}
+.sys-card::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,transparent 60%,rgba(196,168,130,0.04));transition:opacity .25s;}
+.sys-card:hover{transform:translateY(-3px);box-shadow:var(--shadow2);border-color:var(--nude4);}
+.sys-card.locked{opacity:.6;cursor:not-allowed;}
+.sys-card.locked:hover{transform:none;box-shadow:none;}
+.sys-icon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:14px;}
+.sys-name{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:500;color:var(--ink);margin-bottom:4px;}
+.sys-desc{font-size:12px;color:var(--ink3);line-height:1.6;}
+.sys-badge{position:absolute;top:16px;right:16px;font-size:10px;padding:3px 9px;border-radius:100px;font-weight:500;}
+.badge-live{background:var(--green-bg);color:var(--green);}
+.badge-new{background:var(--gold-bg);color:var(--gold);}
+.badge-lock{background:var(--nude2);color:var(--ink3);}
+
+.stats-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;}
+.stat-label{font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;}
+.stat-val{font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:400;color:var(--ink);}
+.stat-val.g{color:var(--green)}.stat-val.r{color:var(--red)}.stat-val.w{color:var(--warm2)}.stat-val.b{color:var(--blue)}
+.stat-sub{font-size:11px;color:var(--ink3);margin-top:3px;}
+
+/* PANELS */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;box-shadow:var(--shadow);}
+.panel-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.panel-title{font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:400;color:var(--ink);}
+.panel-sub{font-size:11px;color:var(--ink3);margin-top:1px;}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.three-col{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+
+/* AGENDA */
+.week-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;}
+.day-col{background:var(--nude2);border-radius:var(--r-sm);overflow:hidden;}
+.day-hdr{padding:10px 8px;text-align:center;border-bottom:1px solid var(--border);}
+.day-name{font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.07em;}
+.day-num{font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:400;color:var(--ink);}
+.day-num.today{color:var(--warm2);font-weight:500;}
+.day-body{padding:6px;min-height:100px;}
+.day-event{background:var(--surface);border-left:2px solid var(--warm);border-radius:4px;padding:4px 6px;margin-bottom:4px;font-size:11px;color:var(--ink2);}
+.day-event.blue{border-left-color:var(--blue);}
+.day-event.green{border-left-color:var(--green);}
+.day-event.red{border-left-color:var(--red);}
+.add-event-btn{width:100%;background:none;border:1px dashed var(--border2);border-radius:4px;padding:4px;font-size:10px;color:var(--ink3);cursor:pointer;margin-top:4px;}
+.add-event-btn:hover{background:var(--surface);color:var(--ink);}
+
+/* HABITOS */
+.habit-list{display:flex;flex-direction:column;gap:10px;}
+.habit-item{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--nude2);border-radius:var(--r-sm);transition:all .2s;}
+.habit-check{width:22px;height:22px;border-radius:50%;border:2px solid var(--nude4);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all .2s;}
+.habit-check.done{background:var(--green);border-color:var(--green);color:#fff;}
+.habit-name{flex:1;font-size:13px;color:var(--ink);}
+.habit-streak{font-size:11px;color:var(--warm2);font-weight:500;}
+.habit-cat{font-size:10px;padding:2px 8px;border-radius:100px;background:var(--nude3);color:var(--ink3);}
+.week-dots{display:flex;gap:3px;}
+.wdot{width:8px;height:8px;border-radius:50%;background:var(--nude3);}
+.wdot.done{background:var(--green);}
+
+/* METAS */
+.meta-card{background:var(--nude2);border-radius:var(--r-sm);padding:14px 16px;margin-bottom:10px;}
+.meta-top{display:flex;justify-content:space-between;margin-bottom:8px;}
+.meta-name{font-size:13px;font-weight:500;color:var(--ink);}
+.meta-pct{font-family:'Cormorant Garamond',serif;font-size:18px;color:var(--warm2);}
+.pbar{height:4px;border-radius:100px;background:var(--nude3);overflow:hidden;}
+.pfill{height:100%;border-radius:100px;transition:width .6s ease;}
+.meta-bot{display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--ink3);}
+
+/* ALIMENTAÇÃO */
+.meal-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+.meal-slot{background:var(--nude2);border-radius:var(--r-sm);padding:12px;text-align:center;}
+.meal-time{font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;}
+.meal-name{font-size:13px;color:var(--ink);margin-bottom:4px;}
+.meal-cal{font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--warm2);}
+.meal-unit{font-size:10px;color:var(--ink3);}
+.macro-bar{display:flex;gap:6px;margin-top:10px;}
+.macro{flex:1;text-align:center;background:var(--nude3);border-radius:6px;padding:8px 4px;}
+.macro-val{font-size:13px;font-weight:500;color:var(--ink);}
+.macro-lbl{font-size:10px;color:var(--ink3);}
+
+/* SONO */
+.sono-card{background:var(--ink);border-radius:var(--r);padding:24px;color:var(--nude);text-align:center;}
+.sono-hours{font-family:'Cormorant Garamond',serif;font-size:64px;font-weight:300;color:var(--warm);line-height:1;}
+.sono-lbl{font-size:11px;color:rgba(245,240,232,0.45);letter-spacing:.1em;text-transform:uppercase;margin-top:6px;}
+.sono-week{display:flex;gap:8px;justify-content:center;margin-top:20px;}
+.sono-day{text-align:center;}
+.sono-bar-wrap{height:60px;display:flex;align-items:flex-end;justify-content:center;margin-bottom:4px;}
+.sono-bar{width:16px;border-radius:4px;background:rgba(196,168,130,0.3);}
+.sono-bar.good{background:var(--warm);}
+.sono-dn{font-size:9px;color:rgba(245,240,232,0.35);text-transform:uppercase;}
+
+/* TREINO */
+.treino-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.treino-card{background:var(--nude2);border-radius:var(--r-sm);padding:14px;}
+.treino-type{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink3);margin-bottom:4px;}
+.treino-name{font-size:13px;font-weight:500;color:var(--ink);margin-bottom:8px;}
+.treino-sets{display:flex;flex-direction:column;gap:4px;}
+.treino-set{display:flex;justify-content:space-between;font-size:12px;color:var(--ink2);padding:3px 0;border-bottom:1px solid var(--border);}
+
+/* UPGRADE BANNER */
+.upgrade-band{background:linear-gradient(135deg,var(--ink) 0%,#2d261e 100%);border-radius:var(--r);padding:24px 28px;display:flex;align-items:center;justify-content:space-between;}
+.upgrade-band h3{font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:400;color:var(--nude);}
+.upgrade-band p{font-size:12px;color:rgba(245,240,232,0.5);margin-top:4px;}
+.btn-upgrade{background:var(--warm);color:var(--ink);border:none;padding:10px 22px;border-radius:100px;font-size:13px;font-weight:500;cursor:pointer;font-family:'DM Sans',sans-serif;}
+
+/* FORM / MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(26,22,18,0.6);display:none;align-items:center;justify-content:center;z-index:200;backdrop-filter:blur(4px);}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--surface);border-radius:var(--r);padding:28px;width:460px;max-width:96vw;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow2);}
+.modal-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
+.modal-title{font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:400;}
+.modal-x{background:none;border:none;font-size:22px;cursor:pointer;color:var(--ink3);}
+.m-group{margin-bottom:14px;}
+.m-label{font-size:11px;color:var(--ink3);font-weight:500;letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:5px;}
+.m-input{width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--r-sm);font-size:13px;color:var(--ink);background:var(--nude);font-family:'DM Sans',sans-serif;}
+.m-input:focus{outline:none;border-color:var(--warm);}
+.m-select{width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--r-sm);font-size:13px;color:var(--ink);background:var(--nude);cursor:pointer;font-family:'DM Sans',sans-serif;}
+.m-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.m-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;}
+.btn{padding:8px 18px;border-radius:var(--r-sm);font-size:13px;cursor:pointer;border:1px solid var(--border2);background:var(--surface);color:var(--ink);font-family:'DM Sans',sans-serif;transition:all .15s;}
+.btn:hover{background:var(--nude2);}
+.btn-primary{background:var(--ink);color:var(--nude);border-color:var(--ink);}
+.btn-primary:hover{background:var(--ink2);}
+.btn-sm{padding:5px 12px;font-size:12px;}
+
+/* TX LIST */
+.tx-list{display:flex;flex-direction:column;}
+.tx-item{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);}
+.tx-item:last-child{border-bottom:none;}
+.tx-left{display:flex;align-items:center;gap:10px;}
+.tx-av{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;}
+.tx-name{font-size:13px;font-weight:500;color:var(--ink);}
+.tx-det{font-size:11px;color:var(--ink3);}
+.tx-val{font-size:13px;font-weight:500;}
+.tv-pos{color:var(--green)}.tv-neg{color:var(--red)}
+.badge{font-size:10px;padding:2px 8px;border-radius:100px;font-weight:500;}
+.bg{background:var(--green-bg);color:var(--green)}
+.br{background:var(--red-bg);color:var(--red)}
+.ba{background:var(--gold-bg);color:var(--gold)}
+
+@media(max-width:900px){
+  .stats-row,.three-col,.meal-grid,.treino-grid{grid-template-columns:repeat(2,1fr);}
+  .week-grid{grid-template-columns:repeat(4,1fr);}
+  .two-col{grid-template-columns:1fr;}
+  .hub-hero{flex-direction:column;gap:16px;}.hub-date{text-align:left;}
+  .systems-grid{grid-template-columns:1fr;}
+}
+@media(max-width:600px){
+  .stats-row{grid-template-columns:repeat(2,1fr);}
+  .content{padding:14px;}
+  .hub-hero{padding:24px;}
+  .hub-hero-text h1{font-size:30px;}
+  .tb-nav{display:none;}
+}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="login-wrap" id="login-wrap">
+  <div class="login-left">
+    <div class="login-deco">
+      <div class="login-deco-logo">
+        <svg width="56" height="56" viewBox="0 0 100 100" fill="none">
+          <path d="M50 16C67 16 83 30 84 49C85 66 73 80 57 83C41 86 25 76 19 60C13 44 23 26 38 20" stroke="#f5f0e8" stroke-width="5" stroke-linecap="round" fill="none"/>
+          <path d="M50 24C64 24 77 36 77 51C77 65 66 75 52 76C38 77 27 66 27 52C27 38 37 24 50 24" stroke="#f5f0e8" stroke-width="3.5" stroke-linecap="round" fill="none" opacity=".55"/>
+          <path d="M50 33C61 33 69 42 69 53C69 63 61 70 51 70C41 70 34 62 35 52C36 42 43 33 50 33" stroke="#c4a882" stroke-width="2.5" stroke-linecap="round" fill="none" opacity=".7"/>
+          <circle cx="33" cy="20" r="3" fill="#c4a882" opacity=".9"/>
+          <circle cx="24" cy="29" r="2" fill="#f5f0e8" opacity=".5"/>
+        </svg>
+      </div>
+      <h1>ORST<br><em>Hub Central</em></h1>
+      <p>Organização que gera resultado</p>
+      <div class="login-tagline">
+        Finanças · Planner · Hábitos<br>Metas · Alimentação · Sono · Treino
+      </div>
+    </div>
+  </div>
+  <div class="login-right">
+    <div class="login-box">
+      <h2>Bem-vinda</h2>
+      <p>Acesse seu hub de organização pessoal</p>
+      <div class="l-tabs">
+        <div class="l-tab active" onclick="lTab('login')">Entrar</div>
+        <div class="l-tab" onclick="lTab('register')">Criar conta</div>
+      </div>
+      <div class="l-panel active" id="lp-login">
+        <div class="l-group"><label class="l-label">Email</label>
+          <input class="l-input" type="email" id="l-email" placeholder="seu@email.com" onkeydown="if(event.key==='Enter')doLogin()"></div>
+        <div class="l-group"><label class="l-label">Senha</label>
+          <input class="l-input" type="password" id="l-pass" placeholder="••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
+        <div class="l-err" id="l-err"></div>
+        <button class="l-btn" id="btn-login" onclick="doLogin()">Entrar</button>
+        <div class="l-forgot" onclick="doReset()">Esqueci minha senha</div>
+      </div>
+      <div class="l-panel" id="lp-register">
+        <div class="l-group"><label class="l-label">Nome</label>
+          <input class="l-input" type="text" id="r-name" placeholder="Seu nome completo"></div>
+        <div class="l-group"><label class="l-label">Email</label>
+          <input class="l-input" type="email" id="r-email" placeholder="seu@email.com"></div>
+        <div class="l-group"><label class="l-label">Senha</label>
+          <input class="l-input" type="password" id="r-pass" placeholder="Mínimo 6 caracteres"></div>
+        <div class="l-err" id="r-err"></div>
+        <button class="l-btn" id="btn-reg" onclick="doRegister()">Criar conta grátis</button>
+        <div style="font-size:11px;color:var(--ink3);text-align:center;margin-top:12px;letter-spacing:.04em">Sem cartão · Cancele quando quiser</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="app" id="main-app">
+  <div class="topbar">
+    <div class="tb-brand">
+      <svg class="tb-logo" viewBox="0 0 100 100" fill="none">
+        <path d="M50 16C67 16 83 30 84 49C85 66 73 80 57 83C41 86 25 76 19 60C13 44 23 26 38 20" stroke="#f5f0e8" stroke-width="6" stroke-linecap="round" fill="none"/>
+        <path d="M50 24C64 24 77 36 77 51C77 65 66 75 52 76C38 77 27 66 27 52C27 38 37 24 50 24" stroke="#c4a882" stroke-width="3.5" stroke-linecap="round" fill="none" opacity=".7"/>
+      </svg>
+      <span class="tb-name">ORST <em>Hub</em></span>
+    </div>
+    <div class="tb-nav">
+      <button class="tb-btn active" onclick="goPage('hub',this)">Hub</button>
+      <button class="tb-btn" onclick="goPage('financas',this)">Finanças</button>
+      <button class="tb-btn" id="nav-planner" onclick="goPage('planner',this)">Planner</button>
+      <button class="tb-btn" id="nav-habitos" onclick="goPage('habitos',this)">Hábitos</button>
+      <button class="tb-btn" id="nav-metas" onclick="goPage('metas',this)">Metas</button>
+      <button class="tb-btn" id="nav-alimentacao" onclick="goPage('alimentacao',this)">Alimentação</button>
+      <button class="tb-btn" id="nav-sono" onclick="goPage('sono',this)">Sono</button>
+      <button class="tb-btn" id="nav-treino" onclick="goPage('treino',this)">Treino</button>
+    </div>
+    <div class="tb-user">
+      <div class="tb-av" id="tb-av">U</div>
+      <span class="tb-role role-free" id="tb-role">Free</span>
+      <button class="tb-out" onclick="window.ORST.signOut()">Sair</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- HUB -->
+    <div class="page active" id="page-hub">
+      <div class="hub-hero">
+        <div class="hub-hero-text">
+          <h1>Olá, <em id="hub-name">Bruna</em> 👋<br>Tudo em um só lugar.</h1>
+          <p>Seu hub central de organização ORST</p>
+        </div>
+        <div class="hub-date">
+          <strong id="hub-day">14</strong>
+          <span id="hub-month">Maio 2026</span><br>
+          <span id="hub-weekday">Quinta-feira</span>
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-label">Hábitos hoje</div><div class="stat-val w" id="hub-habitos">0/0</div><div class="stat-sub">completados</div></div>
+        <div class="stat-card"><div class="stat-label">Metas ativas</div><div class="stat-val b" id="hub-metas">0</div><div class="stat-sub">em andamento</div></div>
+        <div class="stat-card"><div class="stat-label">Sono ontem</div><div class="stat-val g" id="hub-sono">—</div><div class="stat-sub">horas</div></div>
+        <div class="stat-card"><div class="stat-label">Calorias hoje</div><div class="stat-val r" id="hub-cal">0</div><div class="stat-sub">kcal registradas</div></div>
+      </div>
+
+      <div class="systems-grid">
+        <div class="sys-card" onclick="goPage('financas',null)">
+          <span class="sys-badge badge-live">Ativo</span>
+          <div class="sys-icon" style="background:var(--nude2)">💰</div>
+          <div class="sys-name">Gestão de Finanças</div>
+          <div class="sys-desc">Lançamentos, parceladas, metas financeiras, investimentos e patrimônio.</div>
+        </div>
+        <div class="sys-card" id="card-planner" onclick="tryPage('planner')">
+          <span class="sys-badge badge-new">Novo</span>
+          <div class="sys-icon" style="background:var(--nude2)">📅</div>
+          <div class="sys-name">Planner Semanal</div>
+          <div class="sys-desc">Agenda da semana, blocos de tempo, eventos e rotina diária organizada.</div>
+        </div>
+        <div class="sys-card" id="card-habitos" onclick="tryPage('habitos')">
+          <span class="sys-badge badge-new">Novo</span>
+          <div class="sys-icon" style="background:var(--nude2)">✅</div>
+          <div class="sys-name">Hábitos</div>
+          <div class="sys-desc">Acompanhe seus hábitos diários com streaks e histórico semanal.</div>
+        </div>
+        <div class="sys-card" id="card-metas" onclick="tryPage('metas')">
+          <span class="sys-badge badge-new">Novo</span>
+          <div class="sys-icon" style="background:var(--nude2)">🎯</div>
+          <div class="sys-name">Metas de vida</div>
+          <div class="sys-desc">Metas pessoais, profissionais e de saúde com progresso visual.</div>
+        </div>
+        <div class="sys-card" id="card-alimentacao" onclick="tryPage('alimentacao')">
+          <span class="sys-badge badge-new">Novo</span>
+          <div class="sys-icon" style="background:var(--nude2)">🥗</div>
+          <div class="sys-name">Alimentação</div>
+          <div class="sys-desc">Refeições, macros, calorias e planejamento alimentar semanal.</div>
+        </div>
+        <div class="sys-card" id="card-sono" onclick="tryPage('sono')">
+          <span class="sys-badge badge-new">Novo</span>
+          <div class="sys-icon" style="background:var(--nude2)">🌙</div>
+          <div class="sys-name">Qualidade do sono</div>
+          <div class="sys-desc">Registre horários de dormir e acordar, qualidade e evolução semanal.</div>
+        </div>
+        <div class="sys-card" id="card-treino" onclick="tryPage('treino')">
+          <span class="sys-badge badge-new">Novo</span>
+          <div class="sys-icon" style="background:var(--nude2)">💪</div>
+          <div class="sys-name">Treinos</div>
+          <div class="sys-desc">Fichas de treino, séries, cargas e evolução por grupo muscular.</div>
+        </div>
+      </div>
+
+      <div id="hub-upgrade" style="display:none">
+        <div class="upgrade-band">
+          <div><h3>Desbloqueie o ORST completo</h3><p>Planner, Hábitos, Metas, Alimentação, Sono e Treino — tudo integrado</p></div>
+          <button class="btn-upgrade" onclick="goPage('financas',null)">Ver planos →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FINANÇAS -->
+    <div class="page" id="page-financas">
+      <div class="panel">
+        <div class="panel-hdr"><div><div class="panel-title">Gestão de Finanças</div><div class="panel-sub">Módulo completo integrado</div></div>
+          <button class="btn btn-primary btn-sm" onclick="openModal('modal-lanc')">+ Lançamento</button></div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+          <div class="stat-card"><div class="stat-label">Entradas</div><div class="stat-val g" id="f-ent">R$ 0</div></div>
+          <div class="stat-card"><div class="stat-label">Saídas</div><div class="stat-val r" id="f-sai">R$ 0</div></div>
+          <div class="stat-card"><div class="stat-label">Saldo</div><div class="stat-val b" id="f-sal">R$ 0</div></div>
+          <div class="stat-card"><div class="stat-label">Parcelas</div><div class="stat-val w" id="f-par">R$ 0</div></div>
+        </div>
+        <div class="tx-list" id="f-tx-list"><div style="text-align:center;padding:20px;color:var(--ink3)">Carregando...</div></div>
+      </div>
+    </div>
+
+    <!-- PLANNER -->
+    <div class="page" id="page-planner">
+      <div class="panel">
+        <div class="panel-hdr"><div><div class="panel-title">Planner Semanal</div><div class="panel-sub" id="planner-week-label"></div></div>
+          <button class="btn btn-primary btn-sm" onclick="openModal('modal-evento')">+ Evento</button></div>
+        <div class="week-grid" id="week-grid"></div>
+      </div>
+    </div>
+
+    <!-- HÁBITOS -->
+    <div class="page" id="page-habitos">
+      <div class="panel">
+        <div class="panel-hdr"><div><div class="panel-title">Hábitos diários</div><div class="panel-sub" id="habitos-date"></div></div>
+          <button class="btn btn-primary btn-sm" onclick="openModal('modal-habito')">+ Hábito</button></div>
+        <div class="habit-list" id="habitos-list"></div>
+      </div>
+    </div>
+
+    <!-- METAS -->
+    <div class="page" id="page-metas">
+      <div class="panel">
+        <div class="panel-hdr"><div><div class="panel-title">Metas de vida</div></div>
+          <button class="btn btn-primary btn-sm" onclick="openModal('modal-meta')">+ Meta</button></div>
+        <div id="metas-list"></div>
+      </div>
+    </div>
+
+    <!-- ALIMENTAÇÃO -->
+    <div class="page" id="page-alimentacao">
+      <div class="panel">
+        <div class="panel-hdr"><div><div class="panel-title">Alimentação de hoje</div></div>
+          <button class="btn btn-primary btn-sm" onclick="openModal('modal-refeicao')">+ Refeição</button></div>
+        <div class="meal-grid" id="meal-grid"></div>
+        <div style="margin-top:16px">
+          <div class="panel-sub" style="margin-bottom:8px">Macros do dia</div>
+          <div class="macro-bar" id="macro-bar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SONO -->
+    <div class="page" id="page-sono">
+      <div class="two-col">
+        <div class="sono-card">
+          <div class="sono-lbl">Média semanal</div>
+          <div class="sono-hours" id="sono-avg">7h</div>
+          <div class="sono-lbl" style="margin-top:8px">horas de sono</div>
+          <div class="sono-week" id="sono-week-bars"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-hdr"><div class="panel-title">Registrar sono</div></div>
+          <div class="m-group"><label class="m-label">Dormiu às</label>
+            <input type="time" class="m-input" id="sono-inicio" value="23:00"></div>
+          <div class="m-group"><label class="m-label">Acordou às</label>
+            <input type="time" class="m-input" id="sono-fim" value="06:30"></div>
+          <div class="m-group"><label class="m-label">Qualidade</label>
+            <select class="m-select" id="sono-qual">
+              <option>😴 Ótima</option><option>😊 Boa</option><option>😐 Regular</option><option>😔 Ruim</option>
+            </select></div>
+          <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="registrarSono()">Registrar</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hdr"><div class="panel-title">Histórico</div></div>
+        <div class="tx-list" id="sono-hist"></div>
+      </div>
+    </div>
+
+    <!-- TREINO -->
+    <div class="page" id="page-treino">
+      <div class="panel">
+        <div class="panel-hdr"><div><div class="panel-title">Treinos da semana</div></div>
+          <button class="btn btn-primary btn-sm" onclick="openModal('modal-treino')">+ Treino</button></div>
+        <div class="treino-grid" id="treino-grid"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODAIS -->
+<div class="modal-overlay" id="modal-lanc" onclick="closeMBg(event,'modal-lanc')">
+  <div class="modal">
+    <div class="modal-hdr"><div class="modal-title">Novo lançamento</div><button class="modal-x" onclick="closeM('modal-lanc')">×</button></div>
+    <div class="m-grid">
+      <div class="m-group"><label class="m-label">Data</label><input type="date" class="m-input" id="nl-data"></div>
+      <div class="m-group"><label class="m-label">Tipo</label>
+        <select class="m-select" id="nl-tipo"><option>Entrada</option><option>Saída</option></select></div>
+      <div class="m-group"><label class="m-label">Categoria</label>
+        <select class="m-select" id="nl-cat"><option>Receita</option><option>Alimentação</option><option>Moradia</option><option>Transporte</option><option>Lazer</option><option>Saúde</option><option>Outros</option></select></div>
+      <div class="m-group"><label class="m-label">Valor R$</label><input type="number" class="m-input" id="nl-valor" placeholder="0,00"></div>
+    </div>
+    <div class="m-group"><label class="m-label">Descrição</label><input type="text" class="m-input" id="nl-desc" placeholder="Ex: Supermercado"></div>
+    <div class="m-grid">
+      <div class="m-group"><label class="m-label">Forma</label>
+        <select class="m-select" id="nl-forma"><option>Pix</option><option>Débito</option><option>Crédito</option><option>Dinheiro</option></select></div>
+      <div class="m-group"><label class="m-label">Status</label>
+        <select class="m-select" id="nl-status"><option>Pago</option><option>Pendente</option></select></div>
+    </div>
+    <div class="m-footer"><button class="btn" onclick="closeM('modal-lanc')">Cancelar</button><button class="btn btn-primary" onclick="addLanc()">Salvar</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-evento" onclick="closeMBg(event,'modal-evento')">
+  <div class="modal">
+    <div class="modal-hdr"><div class="modal-title">Novo evento</div><button class="modal-x" onclick="closeM('modal-evento')">×</button></div>
+    <div class="m-group"><label class="m-label">Título</label><input type="text" class="m-input" id="ev-titulo" placeholder="Ex: Reunião de equipe"></div>
+    <div class="m-grid">
+      <div class="m-group"><label class="m-label">Dia</label>
+        <select class="m-select" id="ev-dia"><option>Segunda</option><option>Terça</option><option>Quarta</option><option>Quinta</option><option>Sexta</option><option>Sábado</option><option>Domingo</option></select></div>
+      <div class="m-group"><label class="m-label">Horário</label><input type="time" class="m-input" id="ev-hora" value="09:00"></div>
+    </div>
+    <div class="m-group"><label class="m-label">Cor</label>
+      <select class="m-select" id="ev-cor"><option value="">Padrão</option><option value="blue">Azul</option><option value="green">Verde</option><option value="red">Vermelho</option></select></div>
+    <div class="m-footer"><button class="btn" onclick="closeM('modal-evento')">Cancelar</button><button class="btn btn-primary" onclick="addEvento()">Salvar</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-habito" onclick="closeMBg(event,'modal-habito')">
+  <div class="modal">
+    <div class="modal-hdr"><div class="modal-title">Novo hábito</div><button class="modal-x" onclick="closeM('modal-habito')">×</button></div>
+    <div class="m-group"><label class="m-label">Nome do hábito</label><input type="text" class="m-input" id="hb-nome" placeholder="Ex: Beber 2L de água"></div>
+    <div class="m-grid">
+      <div class="m-group"><label class="m-label">Categoria</label>
+        <select class="m-select" id="hb-cat"><option>Saúde</option><option>Produtividade</option><option>Exercício</option><option>Alimentação</option><option>Mente</option><option>Outro</option></select></div>
+      <div class="m-group"><label class="m-label">Frequência</label>
+        <select class="m-select" id="hb-freq"><option>Diário</option><option>Seg-Sex</option><option>Fins de semana</option></select></div>
+    </div>
+    <div class="m-footer"><button class="btn" onclick="closeM('modal-habito')">Cancelar</button><button class="btn btn-primary" onclick="addHabito()">Criar hábito</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-meta" onclick="closeMBg(event,'modal-meta')">
+  <div class="modal">
+    <div class="modal-hdr"><div class="modal-title">Nova meta</div><button class="modal-x" onclick="closeM('modal-meta')">×</button></div>
+    <div class="m-group"><label class="m-label">Nome da meta</label><input type="text" class="m-input" id="mt-nome" placeholder="Ex: Ler 24 livros este ano"></div>
+    <div class="m-grid">
+      <div class="m-group"><label class="m-label">Categoria</label>
+        <select class="m-select" id="mt-cat"><option>Saúde</option><option>Financeiro</option><option>Carreira</option><option>Pessoal</option><option>Relacionamento</option><option>Outro</option></select></div>
+      <div class="m-group"><label class="m-label">Prazo</label><input type="date" class="m-input" id="mt-prazo"></div>
+      <div class="m-group"><label class="m-label">Progresso atual %</label><input type="number" class="m-input" id="mt-prog" placeholder="0" min="0" max="100"></div>
+    </div>
+    <div class="m-group"><label class="m-label">Descrição</label><input type="text" class="m-input" id="mt-desc" placeholder="Detalhes da meta"></div>
+    <div class="m-footer"><button class="btn" onclick="closeM('modal-meta')">Cancelar</button><button class="btn btn-primary" onclick="addMeta()">Criar meta</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-refeicao" onclick="closeMBg(event,'modal-refeicao')">
+  <div class="modal">
+    <div class="modal-hdr"><div class="modal-title">Registrar refeição</div><button class="modal-x" onclick="closeM('modal-refeicao')">×</button></div>
+    <div class="m-grid">
+      <div class="m-group"><label class="m-label">Refeição</label>
+        <select class="m-select" id="rf-tipo"><option>Café da manhã</option><option>Lanche manhã</option><option>Almoço</option><option>Lanche tarde</option><option>Jantar</option><option>Ceia</option></select></div>
+      <div class="m-group"><label class="m-label">Calorias (kcal)</label><input type="number" class="m-input" id="rf-cal" placeholder="400"></div>
+    </div>
+    <div class="m-group"><label class="m-label">Alimentos</label><input type="text" class="m-input" id="rf-desc" placeholder="Ex: Frango, arroz, salada"></div>
+    <div class="m-grid">
+      <div class="m-group"><label class="m-label">Proteínas (g)</label><input type="number" class="m-input" id="rf-prot" placeholder="30"></div>
+      <div class="m-group"><label class="m-label">Carboidratos (g)</label><input type="number" class="m-input" id="rf-carb" placeholder="45"></div>
+      <div class="m-group"><label class="m-label">Gorduras (g)</label><input type="number" class="m-input" id="rf-gord" placeholder="12"></div>
+    </div>
+    <div class="m-footer"><button class="btn" onclick="closeM('modal-refeicao')">Cancelar</button><button class="btn btn-primary" onclick="addRefeicao()">Registrar</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-treino" onclick="closeMBg(event,'modal-treino')">
+  <div class="modal">
+    <div class="modal-hdr"><div class="modal-title">Novo treino</div><button class="modal-x" onclick="closeM('modal-treino')">×</button></div>
+    <div class="m-group"><label class="m-label">Nome do treino</label><input type="text" class="m-input" id="tr-nome" placeholder="Ex: Treino A — Peito e Tríceps"></div>
+    <div class="m-grid">
+      <div class="m-group"><label class="m-label">Tipo</label>
+        <select class="m-select" id="tr-tipo"><option>Musculação</option><option>Cardio</option><option>HIIT</option><option>Yoga</option><option>Pilates</option><option>Funcional</option></select></div>
+      <div class="m-group"><label class="m-label">Duração (min)</label><input type="number" class="m-input" id="tr-dur" placeholder="60"></div>
+    </div>
+    <div class="m-group"><label class="m-label">Exercícios</label><input type="text" class="m-input" id="tr-exer" placeholder="Ex: Supino 4x12, Rosca 3x15"></div>
+    <div class="m-footer"><button class="btn" onclick="closeM('modal-treino')">Cancelar</button><button class="btn btn-primary" onclick="addTreino()">Salvar treino</button></div>
+  </div>
+</div>
+
+<script>
+const fmt = v => 'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+const dias = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+const mesesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const hoje = new Date();
+
+function showLogin(){ document.getElementById('login-wrap').classList.remove('hidden'); document.getElementById('main-app').classList.remove('visible'); }
+function showApp(){ document.getElementById('login-wrap').classList.add('hidden'); document.getElementById('main-app').classList.add('visible'); initApp(); }
+
+function lTab(t){
+  document.querySelectorAll('.l-tab').forEach(e=>e.classList.remove('active'));
+  document.querySelectorAll('.l-panel').forEach(e=>e.classList.remove('active'));
+  document.querySelector(`.l-tab:nth-child(${t==='login'?1:2})`).classList.add('active');
+  document.getElementById('lp-'+t).classList.add('active');
+}
+
+// PAGES
+function goPage(id, el){
+  if(id!=='hub'&&id!=='financas'&&!canAccess(id)){
+    showUpgradeAlert(); return;
+  }
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tb-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  if(el) el.classList.add('active');
+  if(id==='hub') loadHub();
+  if(id==='financas') loadFinancas();
+  if(id==='planner') renderPlanner();
+  if(id==='habitos') renderHabitos();
+  if(id==='metas') renderMetas();
+  if(id==='alimentacao') renderAlimentacao();
+  if(id==='sono') renderSono();
+  if(id==='treino') renderTreino();
+}
+
+function tryPage(id){
+  if(!canAccess(id)){ showUpgradeAlert(); return; }
+  goPage(id, null);
+}
+
+function showUpgradeAlert(){
+  alert('🔒 Esta funcionalidade está disponível no plano Premium.\n\nAcesse "Finanças" → Planos para fazer upgrade!');
+}
+
+// APP INIT
+function initApp(){
+  const role = window.ORST.role;
+  const email = window.ORST.user?.email||'';
+  const name = email.split('@')[0];
+  document.getElementById('tb-av').textContent = email.charAt(0).toUpperCase();
+  document.getElementById('tb-role').textContent = role==='admin'?'👑 Admin':role==='premium'?'⭐ Premium':'Free';
+  document.getElementById('tb-role').className = 'tb-role role-'+role;
+  document.getElementById('hub-name').textContent = name.charAt(0).toUpperCase()+name.slice(1);
+  document.getElementById('hub-day').textContent = hoje.getDate();
+  document.getElementById('hub-month').textContent = mesesNome[hoje.getMonth()]+' '+hoje.getFullYear();
+  document.getElementById('hub-weekday').textContent = dias[hoje.getDay()]+'-feira';
+  document.getElementById('hub-upgrade').style.display = role==='free'?'':'none';
+  // Lock cards for free
+  ['planner','habitos','metas','alimentacao','sono','treino'].forEach(m=>{
+    const c = document.getElementById('card-'+m);
+    if(c) c.classList.toggle('locked', role==='free');
+    const nb = document.getElementById('nav-'+m);
+    if(nb) nb.classList.toggle('locked', role==='free');
+  });
+  document.getElementById('nl-data').value = hoje.toISOString().slice(0,10);
+  document.getElementById('habitos-date').textContent = dias[hoje.getDay()]+', '+hoje.getDate()+' de '+mesesNome[hoje.getMonth()];
+  loadHub();
+}
+
+// ===== DATA =====
+let lancamentos=[], habitos=[], metas=[], refeicoes=[], sonoLog=[], treinos=[], eventos=[];
+
+async function loadAll(){
+  try{ lancamentos = await window.FS.get('lancamentos','data'); }catch(e){}
+  try{ habitos = await window.FS.get('habitos'); }catch(e){}
+  try{ metas = await window.FS.get('metas'); }catch(e){}
+  try{ refeicoes = await window.FS.get('refeicoes'); }catch(e){}
+  try{ sonoLog = await window.FS.get('sono'); }catch(e){}
+  try{ treinos = await window.FS.get('treinos'); }catch(e){}
+  try{ eventos = await window.FS.get('eventos'); }catch(e){}
+}
+
+// HUB
+async function loadHub(){
+  await loadAll();
+  const hojeStr = hoje.toISOString().slice(0,10);
+  const hbHoje = habitos.filter(h=>h.data===hojeStr||!h.data);
+  const done = hbHoje.filter(h=>h.done).length;
+  document.getElementById('hub-habitos').textContent = done+'/'+hbHoje.length;
+  document.getElementById('hub-metas').textContent = metas.filter(m=>!m.concluida).length;
+  const ultimoSono = sonoLog[0];
+  document.getElementById('hub-sono').textContent = ultimoSono ? ultimoSono.horas+'h' : '—';
+  const calHoje = refeicoes.filter(r=>r.data===hojeStr).reduce((a,r)=>a+(r.cal||0),0);
+  document.getElementById('hub-cal').textContent = calHoje||0;
+}
+
+// FINANÇAS
+async function loadFinancas(){
+  if(!lancamentos.length) try{ lancamentos=await window.FS.get('lancamentos','data'); }catch(e){}
+  const ent = lancamentos.filter(l=>l.tipo==='Entrada').reduce((a,l)=>a+l.valor,0);
+  const sai = lancamentos.filter(l=>l.tipo==='Saída').reduce((a,l)=>a+l.valor,0);
+  document.getElementById('f-ent').textContent=fmt(ent);
+  document.getElementById('f-sai').textContent=fmt(sai);
+  document.getElementById('f-sal').textContent=fmt(ent-sai);
+  const list=document.getElementById('f-tx-list');
+  list.innerHTML='';
+  if(!lancamentos.length){list.innerHTML='<div style="text-align:center;padding:20px;color:var(--ink3)">Nenhum lançamento. Clique em "+ Lançamento".</div>';return;}
+  lancamentos.slice(0,8).forEach(l=>{
+    const pos=l.tipo==='Entrada';
+    list.innerHTML+=`<div class="tx-item">
+      <div class="tx-left">
+        <div class="tx-av" style="background:${pos?'var(--green-bg)':'var(--red-bg)'};font-size:14px">${pos?'↑':'↓'}</div>
+        <div><div class="tx-name">${l.desc}</div><div class="tx-det">${l.data} · ${l.cat}</div></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="badge ${l.status==='Pago'?'bg':'ba'}">${l.status}</span>
+        <div class="tx-val ${pos?'tv-pos':'tv-neg'}">${pos?'+':'-'}${fmt(l.valor)}</div>
+        <button onclick="delLanc('${l.id}')" style="background:none;border:none;cursor:pointer;color:var(--ink3);font-size:18px">×</button>
+      </div>
+    </div>`;
+  });
+}
+
+async function addLanc(){
+  const desc=document.getElementById('nl-desc').value.trim();
+  const valor=parseFloat(document.getElementById('nl-valor').value);
+  if(!desc||!valor||valor<=0){alert('Preencha descrição e valor.');return;}
+  const l={data:document.getElementById('nl-data').value,tipo:document.getElementById('nl-tipo').value,
+    cat:document.getElementById('nl-cat').value,valor,desc,forma:document.getElementById('nl-forma').value,
+    status:document.getElementById('nl-status').value,ts:new Date().toISOString()};
+  try{const r=await window.FS.save('lancamentos',l);l.id=r?.id||'l-'+Date.now();}catch(e){l.id='l-'+Date.now();}
+  lancamentos.unshift(l);
+  closeM('modal-lanc');
+  loadFinancas();
+}
+
+async function delLanc(id){
+  if(!confirm('Excluir?'))return;
+  try{await window.FS.del('lancamentos',id);}catch(e){}
+  lancamentos=lancamentos.filter(l=>l.id!==id);
+  loadFinancas();
+}
+
+// PLANNER
+function renderPlanner(){
+  const semana=['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
+  const grid=document.getElementById('week-grid');
+  const label=document.getElementById('planner-week-label');
+  const mon=new Date(hoje);
+  mon.setDate(hoje.getDate()-(hoje.getDay()||7)+1);
+  const sun=new Date(mon);sun.setDate(mon.getDate()+6);
+  label.textContent=mon.getDate()+'/'+mesesNome[mon.getMonth()]+' — '+sun.getDate()+'/'+mesesNome[sun.getMonth()];
+  grid.innerHTML='';
+  semana.forEach((d,i)=>{
+    const dDate=new Date(mon);dDate.setDate(mon.getDate()+i);
+    const isToday=dDate.toDateString()===hoje.toDateString();
+    const dayEvts=eventos.filter(e=>e.dia===d);
+    let evHtml=dayEvts.map(e=>`<div class="day-event ${e.cor||''}">${e.hora} ${e.titulo}</div>`).join('');
+    grid.innerHTML+=`<div class="day-col">
+      <div class="day-hdr">
+        <div class="day-name">${d.slice(0,3)}</div>
+        <div class="day-num ${isToday?'today':''}">${dDate.getDate()}</div>
+      </div>
+      <div class="day-body">${evHtml}
+        <button class="add-event-btn" onclick="document.getElementById('ev-dia').value='${d}';openModal('modal-evento')">+</button>
+      </div>
+    </div>`;
+  });
+}
+
+async function addEvento(){
+  const ev={titulo:document.getElementById('ev-titulo').value.trim(),
+    dia:document.getElementById('ev-dia').value,hora:document.getElementById('ev-hora').value,
+    cor:document.getElementById('ev-cor').value,criadoEm:new Date().toISOString()};
+  if(!ev.titulo){alert('Digite o título.');return;}
+  try{const r=await window.FS.save('eventos',ev);ev.id=r?.id||'ev-'+Date.now();}catch(e){ev.id='ev-'+Date.now();}
+  eventos.push(ev);closeM('modal-evento');renderPlanner();
+}
+
+// HÁBITOS
+function renderHabitos(){
+  const list=document.getElementById('habitos-list');
+  list.innerHTML='';
+  if(!habitos.length){list.innerHTML='<div style="text-align:center;padding:30px;color:var(--ink3)">Nenhum hábito. Clique em "+ Hábito".</div>';return;}
+  habitos.forEach(h=>{
+    const done=h.done;
+    list.innerHTML+=`<div class="habit-item">
+      <div class="habit-check ${done?'done':''}" onclick="toggleHabito('${h.id}',${done})">${done?'✓':''}</div>
+      <div class="habit-name">${h.nome}</div>
+      <span class="habit-cat">${h.cat}</span>
+      <span class="habit-streak">🔥${h.streak||0}</span>
+      <button onclick="delHabito('${h.id}')" style="background:none;border:none;cursor:pointer;color:var(--ink3);font-size:16px;margin-left:auto">×</button>
+    </div>`;
+  });
+  const done2=habitos.filter(h=>h.done).length;
+  document.getElementById('hub-habitos').textContent=done2+'/'+habitos.length;
+}
+
+async function addHabito(){
+  const h={nome:document.getElementById('hb-nome').value.trim(),cat:document.getElementById('hb-cat').value,
+    freq:document.getElementById('hb-freq').value,done:false,streak:0,criadoEm:new Date().toISOString()};
+  if(!h.nome){alert('Digite o nome.');return;}
+  try{const r=await window.FS.save('habitos',h);h.id=r?.id||'h-'+Date.now();}catch(e){h.id='h-'+Date.now();}
+  habitos.push(h);closeM('modal-habito');renderHabitos();
+}
+
+async function toggleHabito(id,wasDone){
+  const h=habitos.find(x=>x.id===id);if(!h)return;
+  h.done=!wasDone;
+  if(h.done) h.streak=(h.streak||0)+1; else h.streak=Math.max(0,(h.streak||1)-1);
+  try{await window.FS.upd('habitos',id,{done:h.done,streak:h.streak});}catch(e){}
+  renderHabitos();
+}
+
+async function delHabito(id){
+  if(!confirm('Excluir hábito?'))return;
+  try{await window.FS.del('habitos',id);}catch(e){}
+  habitos=habitos.filter(h=>h.id!==id);renderHabitos();
+}
+
+// METAS
+function renderMetas(){
+  const el=document.getElementById('metas-list');
+  el.innerHTML='';
+  if(!metas.length){el.innerHTML='<div style="text-align:center;padding:30px;color:var(--ink3)">Nenhuma meta. Clique em "+ Meta".</div>';return;}
+  metas.forEach(m=>{
+    const pct=Math.min(100,parseInt(m.prog)||0);
+    const cores=['#5a7a5a','#4a6a8a','#b8963e','#9a4a4a','#8a6d4e'];
+    const cor=cores[Math.floor(Math.random()*cores.length)];
+    el.innerHTML+=`<div class="meta-card">
+      <div class="meta-top"><span class="meta-name">🎯 ${m.nome} <small style="color:var(--ink3);font-size:11px">${m.cat}</small></span><span class="meta-pct">${pct}%</span></div>
+      <div class="pbar"><div class="pfill" style="width:${pct}%;background:${cor}"></div></div>
+      <div class="meta-bot"><span>${m.desc||'—'}</span><span>Prazo: ${m.prazo||'—'}</span></div>
+    </div>`;
+  });
+  document.getElementById('hub-metas').textContent=metas.filter(m=>!m.concluida).length;
+}
+
+async function addMeta(){
+  const m={nome:document.getElementById('mt-nome').value.trim(),cat:document.getElementById('mt-cat').value,
+    prazo:document.getElementById('mt-prazo').value,prog:document.getElementById('mt-prog').value||0,
+    desc:document.getElementById('mt-desc').value,concluida:false,criadoEm:new Date().toISOString()};
+  if(!m.nome){alert('Digite o nome da meta.');return;}
+  try{const r=await window.FS.save('metas',m);m.id=r?.id||'m-'+Date.now();}catch(e){m.id='m-'+Date.now();}
+  metas.push(m);closeM('modal-meta');renderMetas();
+}
+
+// ALIMENTAÇÃO
+function renderAlimentacao(){
+  const hojeStr=hoje.toISOString().slice(0,10);
+  const rfHoje=refeicoes.filter(r=>r.data===hojeStr);
+  const slots=['Café da manhã','Lanche manhã','Almoço','Lanche tarde','Jantar','Ceia'];
+  const grid=document.getElementById('meal-grid');
+  grid.innerHTML='';
+  slots.forEach(s=>{
+    const rf=rfHoje.find(r=>r.tipo===s);
+    grid.innerHTML+=`<div class="meal-slot">
+      <div class="meal-time">${s}</div>
+      ${rf?`<div class="meal-name">${rf.desc||'—'}</div><div class="meal-cal">${rf.cal||0}<span class="meal-unit"> kcal</span></div>`
+        :`<div style="color:var(--ink3);font-size:12px;margin-top:8px">Não registrado</div>
+         <button class="btn btn-sm" style="margin-top:8px;width:100%;font-size:11px" onclick="document.getElementById('rf-tipo').value='${s}';openModal('modal-refeicao')">+ Registrar</button>`}
+    </div>`;
+  });
+  const totalCal=rfHoje.reduce((a,r)=>a+(r.cal||0),0);
+  const totalProt=rfHoje.reduce((a,r)=>a+(r.prot||0),0);
+  const totalCarb=rfHoje.reduce((a,r)=>a+(r.carb||0),0);
+  const totalGord=rfHoje.reduce((a,r)=>a+(r.gord||0),0);
+  document.getElementById('macro-bar').innerHTML=`
+    <div class="macro"><div class="macro-val">${totalCal}</div><div class="macro-lbl">kcal</div></div>
+    <div class="macro"><div class="macro-val">${totalProt}g</div><div class="macro-lbl">Proteína</div></div>
+    <div class="macro"><div class="macro-val">${totalCarb}g</div><div class="macro-lbl">Carbo</div></div>
+    <div class="macro"><div class="macro-val">${totalGord}g</div><div class="macro-lbl">Gordura</div></div>`;
+  document.getElementById('hub-cal').textContent=totalCal;
+}
+
+async function addRefeicao(){
+  const r={tipo:document.getElementById('rf-tipo').value,desc:document.getElementById('rf-desc').value,
+    cal:parseFloat(document.getElementById('rf-cal').value)||0,
+    prot:parseFloat(document.getElementById('rf-prot').value)||0,
+    carb:parseFloat(document.getElementById('rf-carb').value)||0,
+    gord:parseFloat(document.getElementById('rf-gord').value)||0,
+    data:hoje.toISOString().slice(0,10),ts:new Date().toISOString()};
+  try{const ref=await window.FS.save('refeicoes',r);r.id=ref?.id||'rf-'+Date.now();}catch(e){r.id='rf-'+Date.now();}
+  refeicoes.push(r);closeM('modal-refeicao');renderAlimentacao();
+}
+
+// SONO
+function calcHoras(ini,fim){
+  const [ih,im]=ini.split(':').map(Number);
+  const [fh,fm]=fim.split(':').map(Number);
+  let h=fh-ih+(fm-im)/60;
+  if(h<0)h+=24;
+  return Math.round(h*10)/10;
+}
+
+function renderSono(){
+  const hist=document.getElementById('sono-hist');
+  hist.innerHTML='';
+  const bars=document.getElementById('sono-week-bars');
+  bars.innerHTML='';
+  const semana=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  semana.forEach((d,i)=>{
+    const log=sonoLog[sonoLog.length-7+i];
+    const h=log?log.horas:0;
+    const pct=Math.min(100,Math.round((h/9)*100));
+    bars.innerHTML+=`<div class="sono-day">
+      <div class="sono-bar-wrap"><div class="sono-bar ${h>=7?'good':''}" style="height:${pct}%"></div></div>
+      <div class="sono-dn">${d}</div>
+    </div>`;
+  });
+  const avg=sonoLog.length?Math.round(sonoLog.slice(-7).reduce((a,s)=>a+s.horas,0)/Math.min(7,sonoLog.length)*10)/10:0;
+  document.getElementById('sono-avg').textContent=avg+'h';
+  document.getElementById('hub-sono').textContent=sonoLog[0]?sonoLog[0].horas+'h':'—';
+  sonoLog.slice(0,5).forEach(s=>{
+    hist.innerHTML+=`<div class="tx-item">
+      <div class="tx-left"><div class="tx-av" style="background:var(--ink);color:var(--warm);font-size:14px">🌙</div>
+        <div><div class="tx-name">${s.horas}h de sono</div><div class="tx-det">${s.data} · ${s.ini}→${s.fim} · ${s.qual}</div></div>
+      </div>
+      <div class="tx-val" style="color:${s.horas>=7?'var(--green)':'var(--red)'}">${s.horas>=7?'Bom':'Curto'}</div>
+    </div>`;
+  });
+  if(!sonoLog.length) hist.innerHTML='<div style="text-align:center;padding:20px;color:var(--ink3)">Nenhum registro ainda.</div>';
+}
+
+async function registrarSono(){
+  const ini=document.getElementById('sono-inicio').value;
+  const fim=document.getElementById('sono-fim').value;
+  const qual=document.getElementById('sono-qual').value;
+  const horas=calcHoras(ini,fim);
+  const s={ini,fim,horas,qual,data:hoje.toISOString().slice(0,10),ts:new Date().toISOString()};
+  try{const r=await window.FS.save('sono',s);s.id=r?.id||'s-'+Date.now();}catch(e){s.id='s-'+Date.now();}
+  sonoLog.unshift(s);renderSono();
+  alert('✅ '+horas+'h registradas!');
+}
+
+// TREINO
+function renderTreino(){
+  const grid=document.getElementById('treino-grid');
+  grid.innerHTML='';
+  if(!treinos.length){grid.innerHTML='<div style="text-align:center;padding:30px;color:var(--ink3);grid-column:span 3">Nenhum treino. Clique em "+ Treino".</div>';return;}
+  treinos.slice(0,6).forEach(t=>{
+    grid.innerHTML+=`<div class="treino-card">
+      <div class="treino-type">${t.tipo} · ${t.dur||0}min</div>
+      <div class="treino-name">💪 ${t.nome}</div>
+      <div class="treino-sets"><div class="treino-set"><span>${t.exer||'—'}</span></div></div>
+      <button onclick="delTreino('${t.id}')" style="background:none;border:none;cursor:pointer;color:var(--ink3);font-size:11px;margin-top:8px">Excluir</button>
+    </div>`;
+  });
+}
+
+async function addTreino(){
+  const t={nome:document.getElementById('tr-nome').value.trim(),tipo:document.getElementById('tr-tipo').value,
+    dur:parseInt(document.getElementById('tr-dur').value)||0,exer:document.getElementById('tr-exer').value,
+    data:hoje.toISOString().slice(0,10),ts:new Date().toISOString()};
+  if(!t.nome){alert('Digite o nome do treino.');return;}
+  try{const r=await window.FS.save('treinos',t);t.id=r?.id||'t-'+Date.now();}catch(e){t.id='t-'+Date.now();}
+  treinos.unshift(t);closeM('modal-treino');renderTreino();
+}
+
+async function delTreino(id){
+  if(!confirm('Excluir treino?'))return;
+  try{await window.FS.del('treinos',id);}catch(e){}
+  treinos=treinos.filter(t=>t.id!==id);renderTreino();
+}
+
+// MODAIS
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeM(id){document.getElementById(id).classList.remove('open');}
+function closeMBg(e,id){if(e.target===document.getElementById(id))closeM(id);}
+</script>
+</body>
+</html>
